@@ -1,0 +1,106 @@
+#
+# Dependencies of this sub-command
+#
+make_file_depends()
+{
+	echo ""
+}
+
+#
+# Sub-command: make file
+#
+subcmd_make_file()
+{
+	log_debug "subcmd_make_file"
+
+	check_argc $# 2
+	check_hostid any $HOSTID
+	exec_remote_host_agent $HOSTID - systest::gfarm2fs::make_file "$@"
+	[ $? -ne 0 ] && log_error "gfservice systest::gfarm2fs::make_file failed"
+
+	log_debug "end subcmd_make_file"
+}
+
+#
+# calculate numeric size from human friendly format
+#
+calc_numeric_size()
+{
+	case $1 in
+	*K)
+		NUMERIC_SIZE=`expr "$1" : "\([1-9][0-9]*\)K"`
+		NUMERIC_SIZE=`expr $NUMERIC_SIZE \* 1024`
+		;;
+	*M)
+		NUMERIC_SIZE=`expr "$1" : "\([1-9][0-9]*\)M"`
+		NUMERIC_SIZE=`expr $NUMERIC_SIZE \* 1024 \* 1024`
+		;;
+	*G)
+		NUMERIC_SIZE=`expr "$1" : "\([1-9][0-9]*\)G"`
+		NUMERIC_SIZE=`expr $NUMERIC_SIZE \* 1024 \* 1024 \* 1024`
+		;;
+	*)
+		NUMERIC_SIZE=$1
+	esac
+
+	echo $NUMERIC_SIZE
+
+	return 0
+}
+
+make_file()
+{
+	FILE_PATH=$1
+	FILE_SIZE=$2
+
+	NUMERIC_SIZE=`calc_numeric_size $FILE_SIZE`
+	BLOCK_SIZE=65536
+	BLOCKS=`expr $NUMERIC_SIZE / $BLOCK_SIZE`
+	REMAINDER=`expr $NUMERIC_SIZE % $BLOCK_SIZE`
+
+	dd if=/dev/zero bs=$BLOCK_SIZE count=$BLOCKS | tr "\000" "a" \
+		> $FILE_PATH
+	if [ $? -ne 0 ]; then
+		set_client_params
+		GFWHERE=`GFARM_CONFIG_FILE=$GFARM_CONF gfwhere $FILE_PATH`
+		log_error "failed to make file" \
+		"[$PROGHOST `date '+%H:%M:%S'`] $FILE_PATH at $GFWHERE"
+	fi
+
+	[ $REMAINDER -eq 0 ] && return 0
+
+	dd if=/dev/zero bs=$REMAINDER count=1 | tr "\000" "a" >> $FILE_PATH
+	if [ $? -ne 0 ]; then
+		set_client_params
+		GFWHERE=`GFARM_CONFIG_FILE=$GFARM_CONF gfwhere $FILE_PATH`
+		log_error "failed to make file" \
+		"[$PROGHOST `date '+%H:%M:%S'`] $FILE_PATH at $GFWHERE"
+	fi
+
+	log_debug "$PROGHOST makes $FILE_PATH done"
+
+	return 0
+}
+
+#
+# Dependencies of this sub-command agent
+#
+make_file_agent_depends()
+{
+	echo ""
+}
+
+#
+# Sub-command: systest::gfarm2fs::make_file
+# Make file in given path.
+#
+subcmd_make_file_agent()
+{
+	log_debug "subcmd_make_file_agent FILE_PATH=$1 FILE_SIZE=$2"
+
+	make_file "$@"
+
+	log_debug "end subcmd_make_files_agent"
+
+	return 0
+}

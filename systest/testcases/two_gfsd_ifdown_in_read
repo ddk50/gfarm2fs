@@ -1,0 +1,160 @@
+#
+# Test case for check behavior when network interface of two gfsd node is
+# down in reading files
+#
+load "gfarm2fs::calc_checksum"
+load "gfarm2fs::wait_for_gfsd_connect"
+load "gfarm_v2::generate_testdata"
+
+#
+# Test parameters
+#
+# GFARM_HOME:	A directory path of Gfarm which this test will be executed
+# FILE_SIZE:	Size of a file to be created
+# SLEEP_SEC:	Second to sleep before make network interface down
+#
+setup_two_gfsd_ifdown_in_read()
+{
+	# define mount point
+	MOUNT_POINT=mnt_$TEST_EXEC_ID
+
+	# default parameter
+	GFARM_HOME=${GFARM_HOME-"/"}
+	FILE_SIZE=${FILE_SIZE-"100M"}
+	SLEEP_SEC=${SLEEP_SEC-"3"}
+	RETRY_COUNT=${RETRY_COUNT-"20"}
+	RETRY_INTERVAL=${RETRY_INTERVAL-"30"}
+
+	# prepare: check whether required host is defined
+	$GFSERVICE systest::gfarm_v2::check_hostids_defined - "gfmd1 gfsd1 gfsd2 client1"
+	[ $? -ne 0 ] && return $RESULT_UNSUPPORTED
+
+	# prepare: wait until gfsd get connected
+	wait_for_gfsd_connect gfsd1 client1 $RETRY_COUNT $RETRY_INTERVAL
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: gfsd1 is unavailable"
+		return $RESULT_FATAL
+	fi
+
+	wait_for_gfsd_connect gfsd2 client1 $RETRY_COUNT $RETRY_INTERVAL
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: gfsd2 is unavailable"
+		return $RESULT_FATAL
+	fi
+
+	# prepare: calc checksum
+	CHECKSUM=`calc_checksum $FILE_SIZE`
+
+	# prepare: mount
+	$GFSERVICE systest::gfarm2fs::exec_ssh client1 mkdir $MOUNT_POINT
+	$GFSERVICE mount client1 $MOUNT_POINT -o modules=subdir \
+		-o subdir=$GFARM_HOME
+
+	# prepare: make file
+	GFARM_FILE1=$GFARM_HOME/${TEST_EXEC_ID}_1
+	generate_testdata $FILE_SIZE | $GFSERVICE systest::gfarm_v2::read_and_register \
+		client1 $GFARM_FILE1 gfmd1 gfsd1
+
+	GFARM_FILE2=$GFARM_HOME/${TEST_EXEC_ID}_2
+	generate_testdata $FILE_SIZE | $GFSERVICE systest::gfarm_v2::read_and_register \
+		client1 $GFARM_FILE2 gfmd1 gfsd2
+
+	return $RESULT_PASS
+}
+
+test_two_gfsd_ifdown_in_read()
+{
+	RESULT=$RESULT_PASS
+
+	# step: read files in background
+	FILE_PATH1=$MOUNT_POINT/${TEST_EXEC_ID}_1
+	$GFSERVICE systest::gfarm2fs::read_file client1 $FILE_PATH1 &
+	READ_PID1=$!
+
+	FILE_PATH2=$MOUNT_POINT/${TEST_EXEC_ID}_2
+	$GFSERVICE systest::gfarm2fs::read_file client1 $FILE_PATH2 &
+	READ_PID2=$!
+
+	# wait a bit for a process starts reading files
+	sleep $SLEEP_SEC
+
+	# step: make network interface down
+	$GFSERVICE systest::gfarm2fs::ifdown gfsd1
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: failed to execute ifdown on gfsd1"
+		return $RESULT_FATAL
+	fi
+
+	$GFSERVICE systest::gfarm2fs::ifdown gfsd2
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: failed to execute ifdown on gfsd2"
+		return $RESULT_FATAL
+	fi
+
+	wait $READ_PID1
+	if [ $? -eq 0 ]; then
+		log_warn "$TESTNAME: unexpectedly suceeded to read a file" \
+			"on gfsd1"
+		set_result RESULT $RESULT_XPASS
+	fi
+
+	wait $READ_PID2
+	if [ $? -eq 0 ]; then
+		log_warn "$TESTNAME: unexpectedly suceeded to read a file" \
+			"on gfsd2"
+		set_result RESULT $RESULT_XPASS
+	fi
+
+	# step: make network interface up
+	$GFSERVICE systest::gfarm2fs::ifup gfsd1
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: failed to execute ifup on gfsd1"
+		return $RESULT_FATAL
+	fi
+
+	$GFSERVICE systest::gfarm2fs::ifup gfsd2
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: failed to execute ifup on gfsd2"
+		return $RESULT_FATAL
+	fi
+
+	# step: wait until gfsd get connected
+	wait_for_gfsd_connect gfsd1 client1 $RETRY_COUNT $RETRY_INTERVAL
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: gfsd1 is unavailable"
+		return $RESULT_FATAL
+	fi
+
+	wait_for_gfsd_connect gfsd2 client1 $RETRY_COUNT $RETRY_INTERVAL
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: gfsd2 is unavailable"
+		return $RESULT_FATAL
+	fi
+
+	# step: read files
+	$GFSERVICE systest::gfarm2fs::read_file client1 $FILE_PATH1 $CHECKSUM
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: failed to read files from gfsd1"
+		set_result RESULT $RESULT_FAIL
+	fi
+
+	$GFSERVICE systest::gfarm2fs::read_file client1 $FILE_PATH2 $CHECKSUM
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: failed to read files from gfsd2"
+		set_result RESULT $RESULT_FAIL
+	fi
+
+	return $RESULT
+}
+
+teardown_two_gfsd_ifdown_in_read()
+{
+	# cleanup: remove files
+	$GFSERVICE systest::gfarm2fs::exec_ssh client1 rm -r $FILE_PATH
+
+	# cleanup: unmount
+	$GFSERVICE umount client1 $MOUNT_POINT
+	$GFSERVICE systest::gfarm2fs::exec_ssh client1 rmdir $MOUNT_POINT
+
+	return $RESULT_PASS
+}

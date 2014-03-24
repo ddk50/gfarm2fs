@@ -1,0 +1,67 @@
+#
+# Dependencies of this sub-command
+#
+make_files_depends()
+{
+	echo ""
+}
+
+#
+# Sub-command: make files
+#
+subcmd_make_files()
+{
+	log_debug "subcmd_make_files"
+
+	check_argc $# 3
+	check_hostid any $HOSTID
+	exec_remote_host_agent $HOSTID - systest::gfarm2fs::make_files "$@"
+	[ $? -ne 0 ] && log_error "gfservice systest::gfarm2fs::make_files failed"
+
+	log_debug "end subcmd_make_files"
+}
+
+make_files()
+{
+	TARGET_DIR=$1
+	NUM_FILES=$2
+	FILE_SIZE=$3
+
+	if [ ! -d $TARGET_DIR ]; then
+		mkdir -p $TARGET_DIR
+		[ $? -ne 0 ] && log_error "mkdir -p $TARGET_DIR failed"
+		log_debug "mkdir -p $TARGET_DIR"
+	fi
+
+	for I in `seq $NUM_FILES` ; do
+		TESTFILE=`printf test_file.%04d $I`
+		make_file "$TARGET_DIR/$TESTFILE" $FILE_SIZE
+		[ -f stop ] && log_error "stopped."
+	done
+
+	return 0
+}
+
+#
+# Dependencies of this sub-command agent
+#
+make_files_agent_depends()
+{
+	echo "systest::gfarm2fs::make_file"
+}
+
+#
+# Sub-command: systest::gfarm2fs::make_files
+# Make files in target dir.
+#
+subcmd_make_files_agent()
+{
+	log_debug "subcmd_make_files_agent TARGET_DIR=$1 NUM_FILES=$2" \
+		"FILE_SIZE=$3"
+
+	make_files "$@"
+
+	log_debug "end subcmd_make_files_agent"
+
+	return 0
+}

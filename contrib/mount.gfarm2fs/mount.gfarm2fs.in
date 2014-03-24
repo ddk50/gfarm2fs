@@ -1,0 +1,176 @@
+#!/bin/sh
+#
+# $Id: mount.gfarm2fs.in 8653 2013-09-18 05:31:01Z tatebe $
+
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+export PATH=@bindir@:$PATH
+
+USAGE() {
+cat <<EOF
+mount.gfarm2fs [ configuration_file mount_point options ]
+
+options:
+    username	     effective local user name to mount
+    gfarmfs_root     directory to be mounted in Gfarm
+    allow_root       allow root to access
+    allow_other      allow everyone to access
+    ro               mount the file system read-only
+
+Environment variable:
+    GFS_USERNAME     global user name in Gfarm
+    GFS_MOUNTDIR     mount point
+    GFARMFS_ROOT     directory to be mounted in Gfarm
+    GFARMFS_OPTIONS  gfarmfs mount options
+    FUSE_OPTIONS     fuse mount options
+
+When mount.gfarm2fs is installed to /sbin/mount.gfarm2fs, you can
+mount the Gfarm file system by mount(8) and automount(8).
+
+Example of /etc/fstab entries:
+/etc/gfarm2.conf /gfarm/tatebe gfarm2fs noauto,user,username=tatebe 0 0
+
+Example of /etc/auto.master entries:
+/gfarm /etc/auto.gfarm
+
+Example of /etc/auto.gfarm entries:
+tatebe -fstype=gfarm2fs,username=tatebe :/home/tatebe/.gfarm2rc
+* -fstype=gfarm2fs,username=& :/home/&/.gfarm2rc
+EOF
+	exit 1
+}
+
+ABORT() {
+	[ $# -gt 0 ] && echo 1>&2 $*
+	exit 1
+}
+
+[ x"$1" = x"-h" -o x"$1" = x"--help" ] && USAGE
+
+if [ $# -gt 0 ]; then
+	GFARM_ENV="env GFARM_CONFIG_FILE=$1 PATH=$PATH"
+	shift
+fi
+if [ $# -gt 0 ]; then
+	GFS_MOUNTDIR=$1
+	shift
+fi
+if [ $# -gt 0 ]; then
+	[ x"$1" = x"-o" ] && shift
+	OPTIONS=$*
+fi
+
+SAVE_IFS=$IFS
+IFS=,
+for o in $OPTIONS
+do
+	case $o in
+	# mount.gfarm2fs options
+	username=*)
+		: ${GFARMFS_USERNAME:=`echo $o | sed -n 's/username=//p'`}
+		;;
+	gfarmfs_root=*)
+		: ${GFARMFS_ROOT:=`echo $o | sed -n 's/gfarmfs_root=//p'`}
+		;;
+
+	# Gfarm2fs options
+	gfs_stat_timeout=*|\
+	syslog=*|loglevel=*|\
+	ncopy=*|copy_limit=*|\
+	genuine_nlink|disable_genuine_nlink|\
+	auto_uid_min=*|auto_uid_max=*|\
+	auto_gid_min=*|auto_gid_max=*)
+		[ x"$GFARMFS_OPTIONS" = x ] && GFARMFS_OPTIONS="-o " ||
+			GFARMFS_OPTIONS="$GFARMFS_OPTIONS,"
+		GFARMFS_OPTIONS="$GFARMFS_OPTIONS$o"
+		;;
+
+	# FUSE options
+	ro|rw|\
+	debug|allow_other|allow_root|\
+	nonempty|default_permissions|\
+	fsname=*|subtype=*|\
+	large_read|max_read=*|\
+	hard_remove|use_ino|readdir_ino|\
+	direct_io|kernel_cache|auto_cache|noauto_cache|\
+	umask=*|uid=*|gid=*|\
+	entry_timeout=*|negative_timeout=*|\
+	attr_timeout=*|ac_attr_timeout=*|\
+	intr|intr_signal=*|\
+	modules=*|\
+	max_write=*|max_readahead=*|async_read|sync_read|\
+	atomic_o_trunc|\
+	subdir=*|rellinks|norellinks|\
+	from_code=*|to_code=*)
+		[ x"$FUSE_OPTIONS" = x ] && FUSE_OPTIONS="-o " ||
+			FUSE_OPTIONS="$FUSE_OPTIONS,"
+		FUSE_OPTIONS="$FUSE_OPTIONS$o"
+		;;
+	esac
+done
+IFS=$SAVE_IFS
+
+[ -x /sbin/runuser ] && SU=/sbin/runuser || SU=su
+if [ -w / -a X"$GFARMFS_USERNAME" != X ]; then
+	RUN="$SU -l $GFARMFS_USERNAME"
+	if $RUN --session-command=hostname >/dev/null 2>&1; then
+		RUN="$RUN --session-command="
+	else
+		RUN="$RUN -c "
+	fi
+else
+	RUN="/bin/sh -c "
+fi
+
+# default value
+: ${GFS_USERNAME:=`$RUN"$GFARM_ENV gfwhoami 2>/dev/null"`}
+: ${GFS_USERNAME:=$USER}
+: ${GFS_USERNAME:=$LOGNAME}
+: ${GFS_USERNAME:=`logname 2>/dev/null`}
+: ${GFS_MOUNTDIR:=/tmp/$GFS_USERNAME}
+: ${GFARMFS_ROOT:=`$RUN"$GFARM_ENV gfuser -l $GFS_USERNAME 2>/dev/null" | awk -F: '{ print $3 }'`}
+: ${GFARMFS_ROOT:=/}
+: ${GFARMFS_OPTIONS:=}
+: ${FUSE_OPTIONS:=}
+
+# copy proxy cert to default location and unset X509_USER_PROXY
+: ${UID:=`id -u`}
+X509_PROXY=/tmp/x509up_u$UID
+if [ X"$X509_USER_PROXY" != X -a -f "$X509_USER_PROXY" -a "$X509_USER_PROXY" != "$X509_PROXY" ]; then
+	cmp "$X509_USER_PROXY" "$X509_PROXY" > /dev/null 2>&1 || {
+		cp -p "$X509_USER_PROXY" "$X509_PROXY".tmp &&
+		mv "$X509_PROXY".tmp "$X509_PROXY" &&
+		unset X509_USER_PROXY &&
+		echo Update proxy certificate for gfarm2fs
+	}
+fi
+
+# if already mounted, exit
+awk '{ print $2 }' /etc/mtab | grep "^$GFS_MOUNTDIR$" >/dev/null &&
+ABORT "$GFS_MOUNTDIR: already mounted"
+
+DELETE_MOUNTDIR_ON_ERROR=0
+if [ ! -d $GFS_MOUNTDIR ]; then
+	mkdir -p $GFS_MOUNTDIR ||
+		ABORT "cannot create a mount point: " $GFS_MOUNTDIR
+	DELETE_MOUNTDIR_ON_ERROR=1
+fi
+[ -w / -o -O $GFS_MOUNTDIR ] || ABORT "$GFS_MOUNTDIR: not owned by " $LOGNAME
+
+# if username is specified, change the owner of the mount point
+if [ -w / ]; then
+	if [ X"$GFARMFS_USERNAME" != X ]; then
+		chown $GFARMFS_USERNAME $GFS_MOUNTDIR
+		chmod +w $GFS_MOUNTDIR
+	fi
+fi
+
+# mount
+$RUN"$GFARM_ENV gfarm2fs -o modules=subdir,subdir=$GFARMFS_ROOT $GFARMFS_OPTIONS $GFS_MOUNTDIR $FUSE_OPTIONS"
+STATUS=$?
+if [ $STATUS = 0 ]; then
+	[ -w / ] || echo Mount GfarmFS on $GFS_MOUNTDIR
+else
+	[ $DELETE_MOUNTDIR_ON_ERROR = 1 ] && rmdir $GFS_MOUNTDIR
+fi
+exit $STATUS

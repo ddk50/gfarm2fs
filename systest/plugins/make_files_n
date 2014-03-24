@@ -1,0 +1,61 @@
+#
+# Dependencies of this sub-command
+#
+make_files_n_depends()
+{
+	echo ""
+}
+
+#
+# Sub-command: make files for n
+#
+subcmd_make_files_n()
+{
+	log_debug "subcmd_make_files_n"
+
+	check_argc $# 5
+	check_hostid any $HOSTID
+	exec_remote_host_agent $HOSTID - systest::gfarm2fs::make_files_n "$@"
+	[ $? -ne 0 ] && log_error "gfservice systest::gfarm2fs::make_files_n failed"
+
+	log_debug "end subcmd_make_files_n"
+}
+
+#
+# Dependencies of this sub-command agent
+#
+make_files_n_agent_depends()
+{
+	echo "systest::gfarm2fs::make_file"
+	echo "systest::gfarm2fs::make_files"
+}
+
+#
+# Sub-command: systest::gfarm2fs::make_files_n
+# Make files in target dir.
+#
+subcmd_make_files_n_agent()
+{
+	log_debug "subcmd_make_files_n_agent MNTDIR_PREFIX=$1 COUNT=$2" \
+		"TARGET_DIR=$3"
+
+	MNTDIR_PREFIX=$1
+	COUNT=$2
+	TARGET_DIR=$3
+	shift 3
+
+	PROCESS_LIST=""
+
+	MNTDIR_PREFIX_ESC=`echo $MNTDIR_PREFIX | sed -e 's|/|\\\\/|g'`
+	for I in `df|awk "/$MNTDIR_PREFIX_ESC/{print \\\$6}"|sort|head -$COUNT`; do
+		make_files "$I/$TARGET_DIR" "$@" &
+		PROCESS_LIST="$PROCESS_LIST $!"
+	done
+
+	for PROCESS in $PROCESS_LIST; do
+		wait $PROCESS
+		[ $? -ne 0 ] && log_error "make_files_n_agent failed"
+	done
+
+	log_debug "end subcmd_make_files_n_agent"
+}

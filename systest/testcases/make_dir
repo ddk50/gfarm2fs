@@ -1,0 +1,142 @@
+#
+# Test case for making directories
+#
+load "gfarm2fs::check_user_group"
+
+#
+# Test parameters
+#
+# GFARM_HOME:	A directory path of Gfarm which this test will be executed
+#
+setup_make_dir()
+{
+	# define mount point
+	MOUNT_POINT=mnt_$TEST_EXEC_ID
+
+	# default parameter
+	GFARM_HOME=${GFARM_HOME-"/"}
+
+	# prepare: check whether required host is defined
+	$GFSERVICE systest::gfarm_v2::check_hostids_defined - "gfmd1 client1"
+	[ $? -ne 0 ] && return $RESULT_UNSUPPORTED
+
+	# prepare: get the current user name.
+	GFARM_USER="`$GFSERVICE gfcmd client1 gfwhoami`"
+	[ $? -ne 0 -o "X$GFARM_USER" = X ] && return $RESULT_UNSUPPORTED
+
+	# prepare: check whether the user belongs to 'gfarmtoot' group
+	check_user_group client1 $GFARM_USER gfarmroot \
+		|| return $RESULT_UNSUPPORTED
+
+	return $RESULT_PASS
+}
+
+test_make_dir()
+{
+	RESULT=$RESULT_PASS
+
+	# step: gfmkdir
+	$GFSERVICE gfcmd client1 gfmkdir $GFARM_HOME/$TEST_EXEC_ID
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: gfmkdir failed"
+		set_result RESULT $RESULT_FAIL
+	fi
+
+	# step: gfchown
+	$GFSERVICE gfcmd client1 gfchown $GFARM_USER \
+		$GFARM_HOME/$TEST_EXEC_ID
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: gfchown failed"
+		set_result RESULT $RESULT_FAIL
+	fi
+
+	# step: gfchgrp
+	$GFSERVICE gfcmd client1 gfchgrp gfarmadm \
+		$GFARM_HOME/$TEST_EXEC_ID
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: gfchgrp failed"
+		set_result RESULT $RESULT_FAIL
+	fi
+
+	# step: gfchmod
+	$GFSERVICE gfcmd client1 gfchmod 775 $GFARM_HOME/$TEST_EXEC_ID
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: gfchmod failed"
+		set_result RESULT $RESULT_FAIL
+	fi
+
+	# step: gfls
+	FOUND=1
+	FILES=`$GFSERVICE gfcmd client1 gfls $GFARM_HOME`
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: gfls failed"
+		set_result RESULT $RESULT_FAIL
+	fi
+	for FILE in $FILES; do
+		if [ X$FILE = X$TEST_EXEC_ID ]; then
+			FOUND=0
+		fi
+	done
+	if [ ! $FOUND ]; then
+		log_warn "$TESTNAME: directory is not created"
+		set_result RESULT $RESULT_FAIL
+	fi
+
+	# step: mount
+	$GFSERVICE systest::gfarm2fs::exec_ssh client1 mkdir $MOUNT_POINT
+	$GFSERVICE mount client1 $MOUNT_POINT -o modules=subdir \
+		-o subdir=$GFARM_HOME
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: failed to mount gfarm"
+		set_result RESULT $RESULT_FAIL
+	fi
+
+	# step: df
+	FOUND=1
+	REMOTE_HOME=`$GFSERVICE systest::gfarm2fs::exec_ssh client1 echo '$HOME'`
+	DIRS=`$GFSERVICE systest::gfarm2fs::exec_ssh client1 df | \
+		awk '{ if (NR == 1) {print $6} }'`
+	for DIR in $DIRS; do
+		if [ X$DIR = X$REMOTE_HOME/$MOUNT_POINT ]; then
+			FOUND=0
+		fi
+	done
+	if [ ! $FOUND ]; then
+		log_warn "$TESTNAME: failed to find mount point"
+		set_result RESULT $RESULT_FAIL
+	fi
+
+	# step: mkdir
+	$GFSERVICE systest::gfarm2fs::exec_ssh client1 mkdir \
+		"$MOUNT_POINT/${TEST_EXEC_ID}-2"
+
+	# step: ls
+	FOUND=1
+	DIRS=`$GFSERVICE systest::gfarm2fs::exec_ssh client1 ls $MOUNT_POINT`
+	for DIR in $DIRS; do
+		if [ X$DIR = X${TEST_EXEC_ID}-2 ]; then
+			FOUND=0
+		fi
+	done
+	if [ ! $FOUND ]; then
+		log_warn "$TESTNAME: failed to find directory"
+		set_result RESULT $RESULT_FAIL
+	fi
+
+	return $RESULT
+}
+
+teardown_make_dir()
+{
+	# cleanup: remove directory
+	$GFSERVICE systest::gfarm2fs::exec_ssh client1 rmdir \
+		"$MOUNT_POINT/${TEST_EXEC_ID}" "$MOUNT_POINT/${TEST_EXEC_ID}-2"
+
+	# cleanup: unmount
+	$GFSERVICE umount client1 $MOUNT_POINT
+
+	# cleanup: remove mount point
+	$GFSERVICE systest::gfarm2fs::exec_ssh client1 rmdir $MOUNT_POINT
+
+	return $RESULT_PASS
+}

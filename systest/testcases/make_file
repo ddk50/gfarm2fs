@@ -1,0 +1,108 @@
+#
+# Test case for making files
+#
+load "gfarm_v2::check_replica_num"
+load "gfarm2fs::check_user_group"
+
+#
+# Test parameters
+#
+# GFARM_HOME:	A directory path of Gfarm which this test will be executed
+# RETRY_COUNT:	Retry number to check replica
+#
+setup_make_file()
+{
+	# define mount point
+	MOUNT_POINT=mnt_$TEST_EXEC_ID
+
+	# default parameter
+	GFARM_HOME=${GFARM_HOME-"/"}
+	RETRY_COUNT=${RETRY_COUNT-"10"}
+
+	# prepare: check whether required host is defined
+	$GFSERVICE systest::gfarm_v2::check_hostids_defined - "gfmd1 client1"
+	[ $? -ne 0 ] && return $RESULT_UNSUPPORTED
+
+	# prepare: check whether the user belongs to 'gfarmtoot' group
+	check_user_group client1 - gfarmroot || return $RESULT_UNSUPPORTED
+
+	# prepare: set file replica to be created
+	$GFSERVICE gfcmd client1 gfncopy -s 2 $GFARM_HOME
+
+	return $RESULT_PASS
+}
+
+test_make_file()
+{
+	RESULT=$RESULT_PASS
+
+	# step: mount
+	$GFSERVICE systest::gfarm2fs::exec_ssh client1 mkdir $MOUNT_POINT
+	$GFSERVICE mount client1 $MOUNT_POINT -o modules=subdir \
+		-o subdir=$GFARM_HOME
+
+	# step: create file
+	FILE_NAME=${TEST_EXEC_ID}.txt
+	FILE_PATH=$MOUNT_POINT/$FILE_NAME
+	GFARM_PATH=$GFARM_HOME/$FILE_NAME
+	$GFSERVICE systest::gfarm2fs::exec_ssh client1 "echo test_$TEST_EXEC_ID \
+		> $FILE_PATH"
+
+	# step: ls
+	FILES=`$GFSERVICE systest::gfarm2fs::exec_ssh client1 ls $MOUNT_POINT`
+	for FILE in $FILES; do
+		if [ X$FILE = X$FILE_NAME ]; then
+			FOUND=0
+		fi
+	done
+	if [ ! $FOUND ]; then
+		log_warn "$TESTNAME: failed to find file"
+		set_result RESULT $RESULT_FAIL
+	fi
+
+	# step: cat
+	CONTENTS=`$GFSERVICE systest::gfarm2fs::exec_ssh client1 cat $FILE_PATH`
+	if [ X$CONTENTS != Xtest_$TEST_EXEC_ID ]; then
+		log_warn "$TESTNAME: contents of file is not same"
+		set_result RESULT $RESULT_FAIL
+	fi
+
+	# step: check number of replica files
+	check_replica_num client1 $GFARM_PATH 2 $RETRY_COUNT
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: number of replica files did not match"
+		set_result RESULT $RESULT_FAIL
+	fi
+
+	# step: check spool
+	HOSTS=`$GFSERVICE gfcmd client1 gfwhere $GFARM_PATH`
+	SPOOL_PATH=`$GFSERVICE gfcmd client1 gfspoolpath $GFARM_PATH`
+	for HOST in $HOSTS; do
+		HOSTID=`$GFSERVICE systest::gfarm_v2::get_gfsd_hostid_by_name $HOST`
+		echo test_$TEST_EXEC_ID | $GFSERVICE systest::gfarm_v2::compare_spool_file \
+			$HOSTID $SPOOL_PATH
+		if [ $? -ne 0 ]; then
+			log_warn "$TESTNAME: file in spool directory is not same"
+			set_result RESULT $RESULT_FAIL
+		fi
+	done
+
+	return $RESULT
+}
+
+teardown_make_file()
+{
+	# cleanup: remove file
+	$GFSERVICE systest::gfarm2fs::exec_ssh client1 rm -f $FILE_PATH
+
+	# cleanup: unmount
+	$GFSERVICE umount client1 $MOUNT_POINT
+
+	# cleanup: remove mount point
+	$GFSERVICE systest::gfarm2fs::exec_ssh client1 rmdir $MOUNT_POINT
+
+	# cleanup: reset number of file replica to be created
+	$GFSERVICE gfcmd client1 gfncopy -r $GFARM_HOME
+
+	return $RESULT_PASS
+}

@@ -1,0 +1,278 @@
+Release note for Gfarm2fs 1.2.9.5
+=================================
+
+[2014.3.23]
+
+Updated feature
+* ckeck existence of subdir
+
+Release note for Gfarm2fs 1.2.9.4
+=================================
+
+[2014.1.18]
+
+New feature
+* support atomic file creation (O_EXCL), which requires Gfarm 2.5.8.4
+  or later
+
+Updated feature
+* mount.hpci, gfarm2fs-proxy-info - better error reporting [sf.net
+  trac #741, #742]
+
+Release note for Gfarm2fs 1.2.9.3
+=================================
+
+[2013.10.2]
+
+Updated feature
+* mount.gfarm2fs - workaround for temporary proxy cert created by
+  gsissh
+* display profile information when profiling feature is enabled
+
+Release note for Gfarm2fs 1.2.9.2
+=================================
+
+[2013.7.29]
+
+Updated feature
+* mount.gfarm2fs - more automount(8) support
+
+Release note for Gfarm2fs 1.2.9.1
+=================================
+
+[2013.5.22]
+
+Updated feature
+* mount.hpci - honor GFARM_CONFIG_FILE environment variable
+
+Release note for Gfarm2fs 1.2.9
+===============================
+
+[2013.4.22]
+
+New feature
+* support atomic append (O_APPEND), which requires Gfarm 2.5.8 or
+  later
+
+Updated feature
+* mount.gfarm2fs - automount(8) support
+
+Release note for Gfarm2fs 1.2.8.1
+=================================
+
+[2013.1.15]
+
+Bug fix
+* mount.hpci - try to mount /gfarm/GROUP/localaccout also
+
+Release note for Gfarm2fs 1.2.8
+===============================
+
+[2012.12.3]
+
+Updated feature
+* relative pathname support for Gfarm clients
+* use inumber and nlink in Gfarm
+* mount.gfarm2fs, gfarm2fs-exec.sh - utility for gfarm2fs
+* mount.hpci - utility for HPCI
+* gfarm2fs-proxy-info - investigate proxy cert used in gfarm2fs
+* nanosecond support [sf.net trac #530]
+* support gfarm:/// symlink
+* -V option - display the Gfarm version also
+
+Bug fix
+* Gfarm URLs don't work with gfarm2fs -o subdir= [sf.net trac #255]
+* cp -p file1 file2: cannot preserve atime and mtime [sf.net trac
+  #532]
+* close(2) on gfarm2fs cannot return the error of flushing buffer
+  [sf.net trac #534]
+* gfarm2fs always ignores log_level directive in gfarm2.conf [sf.net
+  trac #547]
+
+Release note for Gfarm2fs 1.2.7
+===============================
+
+[2012.9.3]
+
+Updated feature
+* support file overwrite under no file replica
+* support ubuntu 11.10 or later
+
+Release note for Gfarm2fs 1.2.6
+===============================
+
+[2011.12.31]
+
+Bug fix
+* fix compilation error when Gfarm ACL is enabled, introduced in the
+  version 1.2.5.
+
+Release note for Gfarm2fs 1.2.5
+===============================
+
+[2011.12.19]
+
+Bug fix
+* fix symlink problem in case that the target includes a symlink
+  specified by a Gfarm URL [sf.net trac #269]
+
+Release note for Gfarm2fs 1.2.4
+===============================
+
+[2011.9.14]
+
+Updated feature
+* -o genuine_nlink to use struct stat:st_nlink from gfmd
+
+Bug fix
+* fix compilation errors on MacOS X 10.7 Lion
+
+Release note for Gfarm2fs 1.2.3
+===============================
+
+[2011.4.22]
+
+New Feature
+* extended Access Control List (ACL) based on POSIX 1003.1e DRAFT 17
+* gfarm2fs_fix_acl.sh - fix incorrect ACL extended attribute when
+  using Gfarm 2.4.1 or earlier
+* support NetBSD [sf.net trac #207]
+
+Documentation
+* manual page - gfarm2fs(1)
+
+New Command-line Option
+* auto_uid_min, auto_uid_max, auto_gid_min, and auto_gid_max options
+
+Updated feature
+* automatic uid/gid mapping
+
+Release note for Gfarm2fs 1.2.2
+===============================
+
+[2010.12.30]
+
+New Feature
+* support multiple metadata servers.  When a symlink targets to
+  another Gfarm file system via a Gfarm URL
+  (gfarm://metaserver:port/dir/), gfarm2fs transparently accesses it.
+
+Performance improvement
+* extended attribute - it is enabled by default
+
+Note
+* -o ncopy=NCOPY option is not necessary for automatic file
+  replication in case of Gfarm 2.4.1 or later.  use gfarm.ncopy
+  extended attribute instead.
+
+Release note for Gfarm2fs 1.2.1
+===============================
+
+[2010.6.29]
+
+Updated feature
+* improve performance and scheduling of automatic file replication
+* stat() returns correct file size even when some process is editing
+  the file
+
+Bug fix
+* fix #106 - memory leak in gfarm2fs about symbolic link handling
+* release() does not return error
+
+Release note for Gfarm2fs 1.2.0.1
+=================================
+
+[2010.4.5]
+
+Updated feature
+* assign a log message number
+
+Release note for Gfarm2fs 1.2.0
+===============================
+
+[2010.3.29]
+
+New Feature
+* automatic file replication by -o ncopy=NCOPY option and extended
+  attribute "gfarm.ncopy"
+* error logging
+
+Updated feature
+* -o ncopy=NCOPY to specify the default number of file replicas
+* -o copy_limit=LIMIT to specify the maximum concurrency of file
+  replica creations
+* -o syslog=facility to specify the syslog facility
+* -o loglevel=priority to specify the log message priority
+* -o gfs_stat_timeout to specify the timeout of attribute cache
+* -V and --version to display version
+* use local_user_map and local_group_map to identify the local users
+  and local groups
+
+Release note for Gfarm2fs 1.1.1
+===============================
+
+[2009.8.23]
+
+New Feature
+* extended attribute
+ (This is disabled by default.  Specify --enable-xattr option in
+  configure to enable it.)
+* scheduling cache dump support for debugging purpose when a signal
+  SIGUSR2 caught
+
+Release note for Gfarm2fs 1.1.0
+===============================
+
+[2009.3.26]
+
+New Feature
+* symbolic link support
+* directory listing speedup by attribute cache
+
+New Command-line Option
+* -E option to specify the expiration period of the attribute cache
+
+Release note for Gfarm2fs 1.0.2
+===============================
+
+[2008.9.27]
+
+New Feature
+* hard link support
+
+Release note for Gfarm2fs 1.0.1
+===============================
+
+[2008.5.28]
+
+New Feature
+* statfs support
+
+Release note for Gfarm2fs 1.0.0
+===============================
+
+[2007.11.28]
+
+The Gfarm2fs is a mount command for the Gfarm v2 distributed file
+system.  FUSE (Filesystem in Userspace) [1] is required to build and
+use gfarm2fs.
+
+[1] http://fuse.sourceforge.net/
+
+GFARM2FS(1)
+
+NAME
+	gfarm2fs - mounts the Gfarm file system
+
+SYNOPSIS
+	gfarm2fs <mount_point> [FUSE options]
+
+DESCRIPTION
+	gfarm2fs mounts the Gfarm file system at the specified mount
+	point.
+
+ENVIRONMENT
+	GFARM_CONFIG_FILE
+		specifies the Gfarm configuration file.
+
+$Id$

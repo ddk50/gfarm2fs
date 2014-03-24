@@ -1,0 +1,103 @@
+#
+# Test case for check behavior when gfsd network interface is down
+# in replicating files
+#
+load "gfarm_v2::generate_testdata"
+load "gfarm2fs::wait_for_gfsd_connect"
+
+#
+# Test parameters
+#
+# GFARM_HOME:	A directory path of Gfarm which this test will be executed
+# FILE_SIZE:	Size of a file to be created
+# SLEEP_SEC:	Second to sleep before make network interface down
+#
+setup_gfsd_ifdown_in_rep()
+{
+	# default parameter
+	GFARM_HOME=${GFARM_HOME-"/"}
+	FILE_SIZE=${FILE_SIZE-"100M"}
+	SLEEP_SEC=${SLEEP_SEC-"3"}
+	RETRY_COUNT=${RETRY_COUNT-"20"}
+	RETRY_INTERVAL=${RETRY_INTERVAL-"30"}
+
+	# prepare: check whether required host is defined
+	$GFSERVICE systest::gfarm_v2::check_hostids_defined - "gfmd1 gfsd1 gfsd2 client1"
+	[ $? -ne 0 ] && return $RESULT_UNSUPPORTED
+
+	# prepare: wait until gfsd get connected
+	wait_for_gfsd_connect gfsd1 client1 $RETRY_COUNT $RETRY_INTERVAL
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: gfsd1 is unavailable"
+		return $RESULT_FATAL
+	fi
+
+	wait_for_gfsd_connect gfsd2 client1 $RETRY_COUNT $RETRY_INTERVAL
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: gfsd2 is unavailable"
+		return $RESULT_FATAL
+	fi
+
+	# prepare: make a file
+	GFARM_FILE=$GFARM_HOME/$TEST_EXEC_ID
+	generate_testdata $FILE_SIZE | $GFSERVICE systest::gfarm_v2::read_and_register \
+		client1 $GFARM_FILE gfmd1 gfsd1
+
+	return $RESULT_PASS
+}
+
+test_gfsd_ifdown_in_rep()
+{
+	RESULT=$RESULT_PASS
+
+	# step: replicate a file in background
+	$GFSERVICE systest::gfarm2fs::replicate_file client1 $GFARM_FILE gfsd2 &
+	REP_PID=$!
+
+	# wait a bit for a process starts replicating a file
+	sleep $SLEEP_SEC
+
+	# step: make network interface down
+	$GFSERVICE systest::gfarm2fs::ifdown gfsd2
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: failed to execute ifdown on gfsd2"
+		return $RESULT_FATAL
+	fi
+
+	wait $REP_PID
+	if [ $? -eq 0 ]; then
+		log_warn "$TESTNAME: unexpectedly suceeded to replicate a file"
+		set_result RESULT $RESULT_XPASS
+	fi
+
+	# step: make network interface up
+	$GFSERVICE systest::gfarm2fs::ifup gfsd2
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: failed to execute ifup on gfsd2"
+		return $RESULT_FATAL
+	fi
+
+	# step: wait until gfsd get connected
+	wait_for_gfsd_connect gfsd2 client1 $RETRY_COUNT $RETRY_INTERVAL
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: gfsd2 is unavailable"
+		return $RESULT_FATAL
+	fi
+
+	# step: replicate a file
+	$GFSERVICE systest::gfarm2fs::replicate_file client1 $GFARM_FILE gfsd2
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: failed to replicate file"
+		set_result RESULT $RESULT_FAIL
+	fi
+
+	return $RESULT
+}
+
+teardown_gfsd_ifdown_in_rep()
+{
+	# cleanup: remove a file
+	$GFSERVICE gfcmd client1 gfrm -r $GFARM_FILE
+
+	return $RESULT_PASS
+}

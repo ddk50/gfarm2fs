@@ -1,0 +1,30 @@
+#
+# Dependencies of this sub-command
+#
+exec_ssh_depends()
+{
+	echo ""
+}
+
+#
+# Sub-command: ssh
+#
+# execute command in host-id
+#
+subcmd_exec_ssh()
+{
+	log_debug "subcmd_ssh"
+
+	check_argc $# 1 +
+	check_hostid any $HOSTID
+	SSH=`get_ssh $HOSTID`
+	HOST=`get_host $HOSTID`
+
+	log_debug "subcmd_ssh: execute $SSH $HOST $@"
+	$SSH $HOST "$@"
+	if [ $? -ne 0 ]; then
+		log_error "command execution failed"
+	fi
+
+	log_debug "end subcmd_ssh"
+}

@@ -1,0 +1,138 @@
+#
+# Test case for appending to file which has replication, immediately after
+# gfsd network interface gets down
+#
+load "gfarm2fs::calc_checksum"
+load "gfarm_v2::generate_testdata"
+load "gfarm_v2::check_replica_num"
+
+#
+# Test parameters
+#
+# GFARM_HOME:	A directory path of Gfarm which this test will be executed
+# FILE_SIZE:	Size of a file to be created
+# RETRY_COUNT:		Retry number to check number of replicas
+#
+setup_append_immediately_in_gfsd_ifdown()
+{
+	# define mount point
+	MOUNT_POINT=mnt_$TEST_EXEC_ID
+
+	# default parameter
+	GFARM_HOME=${GFARM_HOME-"/"}
+	FILE_SIZE=${FILE_SIZE-"100M"}
+	RETRY_COUNT=${RETRY_COUNT-"10"}
+
+	# prepare: check whether required hosts are defined
+	$GFSERVICE systest::gfarm_v2::check_hostids_defined - "gfmd1 gfsd1 gfsd2 client1"
+	[ $? -ne 0 ] && return $RESULT_UNSUPPORTED
+
+	# prepare: mount
+	$GFSERVICE systest::gfarm2fs::exec_ssh client1 mkdir $MOUNT_POINT
+	$GFSERVICE mount client1 $MOUNT_POINT -o modules=subdir \
+		-o subdir=$GFARM_HOME
+
+	# prepare: make a file with replica
+	GFARM_FILE=$GFARM_HOME/$TEST_EXEC_ID
+	generate_testdata $FILE_SIZE | $GFSERVICE systest::gfarm_v2::read_and_register \
+		client1 $GFARM_FILE gfmd1 gfsd1
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: failed to register file on gfsd1"
+		return $RESULT_FATAL
+	fi
+
+	$GFSERVICE systest::gfarm2fs::replicate_file client1 $GFARM_FILE gfsd2
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: failed to replicate file on gfsd2"
+		return $RESULT_FATAL
+	fi
+
+	# prepare: set number of replica to be created
+	$GFSERVICE gfcmd client1 gfncopy -s 2 $GFARM_FILE
+
+	# prepare: calc checksum
+	CHECKSUM_BEFORE=`calc_checksum $FILE_SIZE`
+
+	# prepare: get spool file path
+	SPOOL_PATH=`$GFSERVICE gfcmd client1 gfspoolpath $GFARM_FILE`
+
+	# prepare: make network interface down
+	$GFSERVICE systest::gfarm2fs::ifdown gfsd1
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: failed to execute ifdown on gfsd1"
+		return $RESULT_FATAL
+	fi
+
+	return $RESULT_PASS
+}
+
+test_append_immediately_in_gfsd_ifdown()
+{
+	RESULT=$RESULT_PASS
+
+	# step: append file
+	MOUNT_FILE=$MOUNT_POINT/$TEST_EXEC_ID
+	$GFSERVICE systest::gfarm2fs::exec_ssh client1 "echo $TEST_EXEC_ID >> $MOUNT_FILE"
+	if [ $? -ne 0 ]; then
+		# append may fail when client select disconnected gfsd
+		log_warn "$TESTNAME: failed to append to a file"
+		return $RESULT_XFAIL
+	fi
+
+	# step: check number of replicas
+	check_replica_num client1 $GFARM_FILE 2 $RETRY_COUNT
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: number of file replica is not enough"
+		set_result RESULT $RESULT_XFAIL
+	fi
+
+	# step: compare check sum of file
+	TMP_FILE=/tmp/gfservice.$$
+	trap "rm -f $TMP_FILE; exit 1" 1 2 3 15
+	generate_testdata $FILE_SIZE > $TMP_FILE
+	echo $TEST_EXEC_ID >> $TMP_FILE
+	CHECKSUM_MOD=`openssl md5 $TMP_FILE | awk '{print $2}'`
+	rm -f $TMP_FILE
+
+	# step: get spool file path
+	SPOOL_PATH_MOD=`$GFSERVICE gfcmd client1 gfspoolpath $GFARM_FILE`
+
+	HOSTS=`$GFSERVICE gfcmd client1 gfwhere $GFARM_FILE`
+	for HOST in $HOSTS; do
+		HOSTID=`$GFSERVICE systest::gfarm_v2::get_gfsd_hostid_by_name $HOST`
+		CHECKSUM_SPOOL=`$GFSERVICE systest::gfarm2fs::spool_file_checksum $HOSTID \
+			$SPOOL_PATH_MOD`
+		if [ X$CHECKSUM_SPOOL = X ]; then
+			log_warn "$TESTNAME: fail to get checksum of a spool" \
+				"file"
+			set_result RESULT $RESULT_FAIL
+		fi
+
+		if [ X$CHECKSUM_SPOOL != X$CHECKSUM_MOD ]; then
+			log_warn "$TESTNAME: checksum of file is different to" \
+				"expected one"
+			set_result RESULT $RESULT_FAIL
+		fi
+	done
+
+	# step: make network interface up
+	$GFSERVICE systest::gfarm2fs::ifup gfsd1
+	if [ $? -ne 0 ]; then
+		log_warn "$TESTNAME: failed to execute ifup on gfsd1"
+		return $RESULT_FATAL
+	fi
+
+	return $RESULT
+}
+
+teardown_append_immediately_in_gfsd_ifdown()
+{
+	# cleanup: remove files
+	$GFSERVICE gfcmd client1 gfrm -f $GFARM_FILE
+
+	# cleanup: unmount
+	$GFSERVICE umount client1 $MOUNT_POINT
+	$GFSERVICE systest::gfarm2fs::exec_ssh client1 rmdir $MOUNT_POINT
+
+	return $RESULT_PASS
+}
